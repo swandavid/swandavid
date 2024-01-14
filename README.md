@@ -4,7 +4,7 @@ Hi ![](https://user-images.githubusercontent.com/18350557/176309783-0785949b-912
 Computer Engineer
 -----------------
 
-* 🌍  I'm based in Connecticut
+* 🌍  I'm based in Mountain View, CA
 * ✉️  You can contact me at [david.soccer.swan@gmail.com](mailto:david.soccer.swan@gmail.com)
 
 ### Skills
