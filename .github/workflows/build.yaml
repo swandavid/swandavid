@@ -1,40 +1,55 @@
 name: README build
+
 on:
   push:
     branches:
       - main
   schedule:
     - cron: "0 4 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+# Never let a scheduled run and a push run race each other to `git push`.
+concurrency:
+  group: readme-build
+  cancel-in-progress: false
+
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 1
-      - name: Get Python 3.8
-        uses: actions/setup-python@v2
+
+      - name: Get Python 3.12
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.8'
-      - name: Configure pip cache
-        uses: actions/cache@v4
-        with:
-          path: ~/.cache/pip
-          key: ${{ runner.os }}-pip-${{ hashFiles('**/cache/requirements.txt') }}
-          restore-keys: ${{ runner.os }}-pip-
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: cache/requirements.txt
+
       - name: Install dependencies
         run: python -m pip install -r cache/requirements.txt
+
       - name: Update README file
         env:
           ACCESS_TOKEN: ${{ secrets.ACCESS_TOKEN }}
           USER_NAME: ${{ secrets.USER_NAME }}
+          # Optional: comma-separated list of extra git author emails you commit
+          # with that are NOT linked to your GitHub account. Without these, those
+          # commits are invisible to the API and go uncounted.
+          AUTHOR_EMAILS: ${{ secrets.AUTHOR_EMAILS }}
         run: python today.py
+
       - name: Commit
         run: |-
-          git add .
-          git diff
           git config --global user.email "github-actions-bot@swandavid.github.io"
           git config --global user.name "swandavid/GitHub-Actions-Bot"
-          git commit -m "Updated README" -a || echo "No changes to commit"
+          git add .
+          git diff --cached --stat
+          git commit -m "Updated README" || echo "No changes to commit"
           git push
