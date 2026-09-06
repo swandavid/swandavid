@@ -1,5 +1,3 @@
 <a href="https://github.com/swandavid/swandavid">
-    <picture>
-        <img alt="David Swan's GitHub Profile README" src="profile.svg" >
-    <picture>
+    <img alt="David Swan's GitHub Profile README" src="profile.svg" width="100%">
 </a>

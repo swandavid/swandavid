@@ -1,0 +1,76 @@
+# Paths excluded from the "lines of code" count: generated, vendored or bulk
+# data files that inflate the number without representing authored code.
+# One fnmatch glob per line; '#' starts a comment. Matched against the full
+# repo-relative path, case-insensitively.
+
+# dependency lockfiles -- resolver output
+*package-lock.json
+*yarn.lock
+*bun.lock
+*pnpm-lock.yaml
+*poetry.lock
+*Cargo.lock
+*Gemfile.lock
+*composer.lock
+*go.sum
+*uv.lock
+
+# vendored / installed trees
+*node_modules/*
+vendor/*
+*/vendor/*
+third_party/*
+*/third_party/*
+external/*
+*/external/*
+
+# build output
+dist/*
+*/dist/*
+build/*
+*/build/*
+.next/*
+*/.next/*
+*.min.js
+*.min.css
+*.map
+
+# captured API payloads, fixtures and sample data
+*/fixtures/*
+*/samples/*
+*/captured/*
+*/__snapshots__/*
+*/testdata/*
+*test-data*
+
+# generated SQL: Supabase schema dumps, seeds, migrations
+*.sql
+
+# 3D meshes and binary artifacts committed wholesale
+*.stl
+*.dae
+*.obj
+*.ply
+*.pcd
+*.bin
+*.pt
+*.pth
+*.onnx
+
+# images, fonts, documents
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.ico
+*.pdf
+*.woff
+*.woff2
+*.ttf
+*.eot
+
+# bulk data
+*.csv
+*.tsv
+*.parquet
+*.ipynb

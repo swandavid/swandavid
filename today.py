@@ -2,9 +2,11 @@ import datetime
 from dateutil import relativedelta
 import requests
 import os
-from lxml import etree
 import time
 import hashlib
+import base64
+import fnmatch
+import render
 
 # ACCESS_TOKEN must be a *classic* personal access token with the `repo` scope.
 #
@@ -20,9 +22,9 @@ USER_NAME = os.environ['USER_NAME'] # 'Andrew6rant'
 # account. Commits made with these show up as author.user == null in the API, so
 # without listing them here they are silently attributed to nobody.
 AUTHOR_EMAILS = [e.strip() for e in os.environ.get('AUTHOR_EMAILS', '').split(',') if e.strip()]
-QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, 'recursive_loc': 0, 'graph_commits': 0, 'loc_query': 0}
+QUERY_COUNT = {'user_getter': 0, 'follower_getter': 0, 'graph_repos_stars': 0, 'recursive_loc': 0, 'loc_query': 0, 'commit_files': 0, 'profile_stats': 0}
 CACHE_COMMENT_SIZE = 7
-SKIPPED_COMMITS = 0 # commits GitHub could not produce a diff for
+EXCLUDE_PATHS = [] # populated from cache/exclude_paths.txt at startup
 
 SESSION = requests.Session()
 SESSION.headers.update(HEADERS)
@@ -101,26 +103,6 @@ def post_query(query, variables, retries=4):
             continue
 
         raise Exception('GraphQL query has failed with a', response.status_code, response.text, QUERY_COUNT)
-
-
-def graph_commits(start_date, end_date):
-    """
-    Uses GitHub's GraphQL v4 API to return my total commit count
-    """
-    query_count('graph_commits')
-    query = '''
-    query($start_date: DateTime!, $end_date: DateTime!, $login: String!) {
-        user(login: $login) {
-            contributionsCollection(from: $start_date, to: $end_date) {
-                contributionCalendar {
-                    totalContributions
-                }
-            }
-        }
-    }'''
-    variables = {'start_date': start_date,'end_date': end_date, 'login': USER_NAME}
-    payload = post_query(query, variables)
-    return int(payload['data']['user']['contributionsCollection']['contributionCalendar']['totalContributions'])
 
 
 def repository_getter(owner_affiliation):
@@ -221,15 +203,45 @@ def author_filters(owner_id):
     return filters
 
 
-def repo_loc(owner, repo_name):
+def load_excludes():
     """
-    Returns (additions, deletions, my_commits) for one repository.
+    Globs of generated / vendored / bulk-data paths that should not count as
+    authored code. Kept in cache/exclude_paths.txt so the list can be tuned
+    without touching this file.
+    """
+    patterns = []
+    try:
+        with open('cache/exclude_paths.txt', 'r') as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith('#'):
+                    patterns.append(line.lower())
+    except FileNotFoundError:
+        pass
+    return patterns
 
-    The history is filtered author-side by the API instead of pulling every
-    commit and matching locally. On a repo like yolov5 that is 19 pages of
-    commits down to 1, and it is also the fix for commits authored with an email
-    that is not linked to the GitHub account -- those have author.user == null
-    and were previously discarded.
+
+def is_excluded(path):
+    """
+    True if a file path matches any exclude glob
+    """
+    path = path.lower()
+    return any(fnmatch.fnmatch(path, pattern) for pattern in EXCLUDE_PATHS)
+
+
+def commit_shas(owner, repo_name, stop_at=None):
+    """
+    Returns (shas, complete) -- my non-merge commit shas on the default branch,
+    newest first.
+
+    Merge commits are dropped because GitHub reports a merge's `additions` as the
+    whole combined diff, which re-counts every line of the branch being merged.
+    That alone roughly triples the total.
+
+    If `stop_at` is given, the walk stops as soon as that sha is seen and
+    `complete` comes back False, meaning the caller holds a valid running total
+    to add to. If the walk finishes without seeing it (a rebase, a force push, or
+    a first run) `complete` is True and the caller must recount from scratch.
     """
     query = '''
     query ($repo_name: String!, $owner: String!, $cursor: String, $author: CommitAuthor!) {
@@ -242,8 +254,7 @@ def repo_loc(owner, repo_name):
                                 node {
                                     ... on Commit {
                                         oid
-                                        additions
-                                        deletions
+                                        parents { totalCount }
                                     }
                                 }
                             }
@@ -257,8 +268,7 @@ def repo_loc(owner, repo_name):
             }
         }
     }'''
-    global SKIPPED_COMMITS
-    commits = {}
+    seen, shas = set(), []
     for author in AUTHOR_FILTERS:
         cursor = None
         while True:
@@ -266,24 +276,83 @@ def repo_loc(owner, repo_name):
             variables = {'repo_name': repo_name, 'owner': owner, 'cursor': cursor, 'author': author}
             branch = post_query(query, variables)['data']['repository']['defaultBranchRef']
             if branch is None: # empty repository, no default branch
-                return 0, 0, 0
+                return [], True
             history = branch['target']['history']
             for edge in history['edges']:
                 node = edge['node']
                 if node is None:
-                    # GitHub occasionally refuses to compute a diff (usually an
-                    # enormous commit) and nulls the whole node. Skip it rather
-                    # than dropping the entire repository's counts.
-                    SKIPPED_COMMITS += 1
                     continue
-                commits[node['oid']] = (node['additions'], node['deletions'])
+                if node['oid'] == stop_at:
+                    return shas, False
+                if node['parents']['totalCount'] > 1: # merge commit
+                    continue
+                if node['oid'] not in seen:
+                    seen.add(node['oid'])
+                    shas.append(node['oid'])
             if not history['pageInfo']['hasNextPage']:
                 break
             cursor = history['pageInfo']['endCursor']
+    return shas, True
 
-    additions = sum(add for add, _ in commits.values())
-    deletions = sum(delete for _, delete in commits.values())
-    return additions, deletions, len(commits)
+
+def commit_loc(owner, repo_name, sha):
+    """
+    Returns (additions, deletions) for one commit, counting only files that
+    survive the exclude list.
+
+    The file list is only available from the REST API -- GraphQL exposes a
+    commit's totals but not its per-file breakdown -- so this costs one request
+    per commit. Results are cached per repository, and only commits newer than
+    the last cached one are ever fetched.
+    """
+    query_count('commit_files')
+    url = f'https://api.github.com/repos/{owner}/{repo_name}/commits/{sha}'
+    delay = 2
+    for attempt in range(4):
+        response = SESSION.get(url, timeout=30)
+        if response.status_code == 200:
+            break
+        if response.status_code in (502, 503, 504) and attempt < 3:
+            time.sleep(delay)
+            delay *= 2
+            continue
+        if response.status_code == 422: # commit too large for the API to diff
+            print('   commit diff unavailable:', owner + '/' + repo_name, sha[:8])
+            return 0, 0
+        raise Exception('commit fetch failed', response.status_code, url, response.text[:200])
+    else:
+        raise Exception('commit fetch failed after retries', url)
+
+    additions = deletions = 0
+    for changed in response.json().get('files') or []:
+        if is_excluded(changed['filename']):
+            continue
+        additions += changed.get('additions', 0)
+        deletions += changed.get('deletions', 0)
+    return additions, deletions
+
+
+def repo_loc(owner, repo_name, cached_entry=None):
+    """
+    Returns (my_commits, additions, deletions, newest_sha) for one repository,
+    resuming from the cached entry when the history still lines up.
+    """
+    stop_at = cached_entry[4] if cached_entry and len(cached_entry) > 4 and cached_entry[4] != '-' else None
+    shas, complete = commit_shas(owner, repo_name, stop_at)
+
+    if complete or cached_entry is None:
+        commits = additions = deletions = 0 # full recount
+    else:
+        _, commits, additions, deletions, _ = cached_entry
+
+    for sha in shas:
+        add, delete = commit_loc(owner, repo_name, sha)
+        additions += add
+        deletions += delete
+    commits += len(shas)
+
+    newest = shas[0] if shas else (stop_at or '-')
+    return commits, additions, deletions, newest
 
 
 def cache_filename():
@@ -296,11 +365,13 @@ def cache_filename():
 
 def read_cache():
     """
-    Returns (comment_block, {repo_hash: [total_commits, my_commits, additions, deletions]}).
+    Returns (comment_block, {repo_hash: [total_commits, my_commits, additions, deletions, newest_sha]}).
 
     Entries are keyed by repo hash rather than by line number. The old positional
     scheme silently skipped a repository whenever its position shifted, leaving
-    that repo's counts frozen at whatever they were -- usually zero.
+    that repo's counts frozen at whatever they were -- usually zero. Rows written
+    by an older version have five fields instead of six and are treated as having
+    no resume point, so they get recounted once.
     """
     try:
         with open(cache_filename(), 'r') as f:
@@ -312,8 +383,8 @@ def read_cache():
     cached = {}
     for line in data[CACHE_COMMENT_SIZE:]:
         fields = line.split()
-        if len(fields) == 5:
-            cached[fields[0]] = [int(value) for value in fields[1:]]
+        if len(fields) == 6:
+            cached[fields[0]] = [int(v) for v in fields[1:5]] + [fields[5]]
     return comment, cached
 
 
@@ -324,15 +395,15 @@ def write_cache(comment, cached, order):
     with open(cache_filename(), 'w') as f:
         f.writelines(comment)
         for repo_hash in order:
-            f.write(repo_hash + ' ' + ' '.join(str(value) for value in cached[repo_hash]) + '\n')
+            f.write(repo_hash + ' ' + ' '.join(str(v) for v in cached[repo_hash]) + '\n')
 
 
 def loc_query(edges, force_cache=False):
     """
     Returns [additions, deletions, net, all_cached] across every repository.
 
-    A repository is re-counted only when its total commit count has moved since
-    the last run, so a normal day costs a handful of queries.
+    A repository is only revisited when its total commit count has moved since
+    the last run, and even then only its new commits are fetched.
     """
     query_count('loc_query')
     comment, cached = read_cache()
@@ -345,7 +416,7 @@ def loc_query(edges, force_cache=False):
         total_commits = commit_total(edge['node'])
 
         if total_commits is None: # empty repository
-            cached[repo_hash] = [0, 0, 0, 0]
+            cached[repo_hash] = [0, 0, 0, 0, '-']
             continue
 
         entry = cached.get(repo_hash)
@@ -355,18 +426,18 @@ def loc_query(edges, force_cache=False):
         all_cached = False
         owner, repo_name = name.split('/')
         try:
-            additions, deletions, my_commits = repo_loc(owner, repo_name)
+            commits, additions, deletions, newest = repo_loc(owner, repo_name, None if force_cache else entry)
         except Exception:
             # Preserve whatever we have rather than zeroing this repo out, then
             # re-raise: a failed request must never be recorded as "0 lines".
             write_cache(comment, cached, [h for h in order if h in cached])
             raise
-        cached[repo_hash] = [total_commits, my_commits, additions, deletions]
+        cached[repo_hash] = [total_commits, commits, additions, deletions, newest]
 
     write_cache(comment, cached, order)
 
-    loc_add = sum(cached[repo_hash][2] for repo_hash in order)
-    loc_del = sum(cached[repo_hash][3] for repo_hash in order)
+    loc_add = sum(cached[h][2] for h in order)
+    loc_del = sum(cached[h][3] for h in order)
     return [loc_add, loc_del, loc_add - loc_del, all_cached]
 
 
@@ -378,48 +449,75 @@ def commit_counter():
     return sum(entry[1] for entry in cached.values())
 
 
-def svg_overwrite(filename, age_data, commit_data, star_data, repo_data, contrib_data, follower_data, loc_data):
+def profile_stats(login):
     """
-    Parse SVG files and update elements with my age, commits, stars, repositories, and lines written
+    Language breakdown and the last year of contribution activity, in one query.
+
+    Languages are weighted by bytes, the same measure GitHub's own repo bars use,
+    and carry GitHub's official brand colour for each language.
     """
-    tree = etree.parse(filename)
-    root = tree.getroot()
-    justify_format(root, 'commit_data', commit_data, 22)
-    justify_format(root, 'star_data', star_data, 14)
-    justify_format(root, 'repo_data', repo_data, 8)
-    justify_format(root, 'age_data', age_data, 49)
-    justify_format(root, 'contrib_data', contrib_data)
-    justify_format(root, 'follower_data', follower_data, 10)
-    justify_format(root, 'loc_data', loc_data[2], 9)
-    justify_format(root, 'loc_add', loc_data[0])
-    justify_format(root, 'loc_del', loc_data[1], 7)
-    tree.write(filename, encoding='utf-8', xml_declaration=True)
+    query_count('profile_stats')
+    query = '''
+    query($login: String!) {
+        user(login: $login) {
+            contributionsCollection {
+                contributionCalendar {
+                    totalContributions
+                    weeks {
+                        contributionDays { contributionCount date }
+                    }
+                }
+            }
+            repositories(first: 100, ownerAffiliations: [OWNER, COLLABORATOR]) {
+                edges {
+                    node {
+                        languages(first: 10, orderBy: {field: SIZE, direction: DESC}) {
+                            edges { size node { name color } }
+                        }
+                    }
+                }
+            }
+        }
+    }'''
+    user = post_query(query, {'login': login})['data']['user']
+
+    sizes, colors = {}, {}
+    for edge in user['repositories']['edges']:
+        for lang in edge['node']['languages']['edges']:
+            name = lang['node']['name']
+            sizes[name] = sizes.get(name, 0) + lang['size']
+            colors[name] = lang['node']['color'] or '#8b949e'
+    total = sum(sizes.values()) or 1
+    languages = [
+        {'name': name, 'pct': 100.0 * size / total, 'color': colors[name]}
+        for name, size in sorted(sizes.items(), key=lambda item: -item[1])
+    ]
+
+    calendar = user['contributionsCollection']['contributionCalendar']
+    weeks = [sum(day['contributionCount'] for day in week['contributionDays'])
+             for week in calendar['weeks']]
+    return {
+        'languages': languages,
+        'weeks': weeks,
+        'contributions': calendar['totalContributions'],
+    }
 
 
-def justify_format(root, element_id, new_text, length=0):
+def avatar_data_uri(login):
     """
-    Updates and formats the text of the element, and modifes the amount of dots in the previous element to justify the new text on the svg
-    """
-    if isinstance(new_text, int):
-        new_text = f"{'{:,}'.format(new_text)}"
-    new_text = str(new_text)
-    find_and_replace(root, element_id, new_text)
-    just_len = max(0, length - len(new_text))
-    if just_len <= 2:
-        dot_map = {0: '', 1: ' ', 2: '. '}
-        dot_string = dot_map[just_len]
-    else:
-        dot_string = ' ' + ('.' * just_len) + ' '
-    find_and_replace(root, f"{element_id}_dots", dot_string)
+    Fetches the account's avatar and returns it as a data: URI.
 
-
-def find_and_replace(root, element_id, new_text):
+    An SVG rendered through GitHub's image proxy cannot reference anything
+    external, so the portrait has to be embedded. Reading it from the account
+    means it tracks whatever avatar is set, with no file to keep in sync.
     """
-    Finds the element in the SVG file and replaces its text with a new value
-    """
-    element = root.find(f".//*[@id='{element_id}']")
-    if element is not None:
-        element.text = new_text
+    try:
+        response = SESSION.get(f'https://github.com/{login}.png?size=400', timeout=30)
+        response.raise_for_status()
+        return 'data:image/png;base64,' + base64.b64encode(response.content).decode('ascii')
+    except requests.exceptions.RequestException as error:
+        print('   avatar unavailable, falling back to initials:', error)
+        return None
 
 
 def user_getter(username):
@@ -490,8 +588,8 @@ if __name__ == '__main__':
     David Swan (swandavid)
     """
     print('Calculation times:')
-    # define global variable for owner ID and calculate user's creation date
-    # e.g {'id': 'MDQ6VXNlcjU3MzMxMTM0'} and 2019-11-03T21:15:07Z for username 'Andrew6rant'
+    EXCLUDE_PATHS = load_excludes()
+
     user_data, user_time = perf_counter(user_getter, USER_NAME)
     OWNER_ID, acc_date = user_data
     AUTHOR_FILTERS = author_filters(OWNER_ID)
@@ -503,9 +601,6 @@ if __name__ == '__main__':
     all_edges, repo_time = perf_counter(repository_getter, ['OWNER', 'COLLABORATOR', 'ORGANIZATION_MEMBER'])
     formatter('repository list', repo_time)
     my_edges = owned_repos(all_edges)
-    repo_data = len(my_edges)
-    contrib_data = len(all_edges)
-    star_data = stars_counter(my_edges)
 
     total_loc, loc_time = perf_counter(loc_query, all_edges)
     formatter('LOC (cached)', loc_time) if total_loc[-1] else formatter('LOC (no cache)', loc_time)
@@ -514,13 +609,40 @@ if __name__ == '__main__':
     formatter('commit counter', commit_time)
     follower_data, follower_time = perf_counter(follower_getter, USER_NAME)
     formatter('follower counter', follower_time)
+    stats, stats_time = perf_counter(profile_stats, USER_NAME)
+    formatter('languages/activity', stats_time)
+    avatar, avatar_time = perf_counter(avatar_data_uri, USER_NAME)
+    formatter('avatar', avatar_time)
 
-    for index in range(len(total_loc)-1): total_loc[index] = '{:,}'.format(total_loc[index]) # format added, deleted, and total LOC
+    render.write('profile.svg', {
+        'name': 'David Swan',
+        'login': USER_NAME,
+        'role': 'AI Research Engineer',
+        'company': 'Lockheed Martin Space',
+        'avatar': avatar,
+        'info': [
+            ('uptime', age_data.replace(' years,', 'y').replace(' months,', 'm').replace(' days', 'd').replace(' year,', 'y').replace(' month,', 'm').replace(' day', 'd')),
+            ('focus', 'Robotics, Webscraping'),
+            ('stack', 'Python, C++, PyTorch'),
+            ('editor', 'VSCode, Nvim'),
+            ('speaks', 'English, Spanish'),
+            ('email', 'david.soccer.swan@gmail.com'),
+            ('linkedin', 'd-swan'),
+            ('discord', 'swanadavid'),
+        ],
+        'repos': len(my_edges),
+        'contrib': len(all_edges),
+        'commits': commit_data,
+        'followers': follower_data,
+        'stars': stars_counter(my_edges),
+        'loc_add': total_loc[0],
+        'loc_del': total_loc[1],
+        'loc_net': total_loc[2],
+        'languages': stats['languages'],
+        'weeks': stats['weeks'],
+        'contributions': stats['contributions'],
+    })
 
-    svg_overwrite('profile.svg', age_data, commit_data, star_data, repo_data, contrib_data, follower_data, total_loc[:-1])
-
-    print('Total function time:', '{:>11}'.format('%.4f' % (user_time + age_time + repo_time + loc_time + commit_time + follower_time)), ' s')
-    if SKIPPED_COMMITS:
-        print('Commits skipped (diff unavailable from the API):', SKIPPED_COMMITS)
-    print('Total GitHub GraphQL API calls:', '{:>3}'.format(sum(QUERY_COUNT.values())))
+    print('Total function time:', '{:>11}'.format('%.4f' % (user_time + age_time + repo_time + loc_time + commit_time + follower_time + stats_time + avatar_time)), ' s')
+    print('Total GitHub API calls:', '{:>3}'.format(sum(QUERY_COUNT.values())))
     for funct_name, count in QUERY_COUNT.items(): print('{:<28}'.format('   ' + funct_name + ':'), '{:>6}'.format(count))
