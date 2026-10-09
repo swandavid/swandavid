@@ -48,7 +48,7 @@
 <text x="178" y="276" class="role" text-anchor="middle">Lockheed Martin Space</text>
 <line x1="58" y1="300" x2="298" y2="300" stroke="var(--border)"/>
 <text x="42" y="328" class="key">uptime</text>
-<text x="314" y="328" class="val" text-anchor="end">25y 9m 17d</text>
+<text x="314" y="328" class="val" text-anchor="end">25y 9m 18d</text>
 <text x="42" y="353" class="key">focus</text>
 <text x="314" y="353" class="val" text-anchor="end">Robotics, Webscraping</text>
 <text x="42" y="378" class="key">stack</text>
@@ -85,19 +85,19 @@
 <text x="384" y="228" class="label">Languages by bytes</text>
 <clipPath id="barclip"><rect x="384" y="242" width="572" height="12" rx="6"/></clipPath>
 <g clip-path="url(#barclip)">
-<rect x="384.00" y="242" width="264.56" height="12" fill="#3572A5"/>
-<rect x="648.56" y="242" width="129.46" height="12" fill="#3178c6"/>
-<rect x="778.02" y="242" width="95.39" height="12" fill="#4F5D95"/>
-<rect x="873.41" y="242" width="33.56" height="12" fill="#336790"/>
-<rect x="906.97" y="242" width="18.49" height="12" fill="#f1e05a"/>
-<rect x="925.46" y="242" width="30.54" height="12" fill="#6e7681"/>
+<rect x="384.00" y="242" width="265.06" height="12" fill="#3572A5"/>
+<rect x="649.06" y="242" width="129.30" height="12" fill="#3178c6"/>
+<rect x="778.36" y="242" width="95.21" height="12" fill="#4F5D95"/>
+<rect x="873.56" y="242" width="33.50" height="12" fill="#336790"/>
+<rect x="907.06" y="242" width="18.45" height="12" fill="#f1e05a"/>
+<rect x="925.51" y="242" width="30.49" height="12" fill="#6e7681"/>
 </g>
 <circle cx="389" cy="272" r="5" fill="#3572A5"/>
 <text x="400" y="276" class="legend">Python <tspan class="muted">46.3%</tspan></text>
 <circle cx="580" cy="272" r="5" fill="#3178c6"/>
 <text x="591" y="276" class="legend">TypeScript <tspan class="muted">22.6%</tspan></text>
 <circle cx="770" cy="272" r="5" fill="#4F5D95"/>
-<text x="781" y="276" class="legend">PHP <tspan class="muted">16.7%</tspan></text>
+<text x="781" y="276" class="legend">PHP <tspan class="muted">16.6%</tspan></text>
 <circle cx="389" cy="294" r="5" fill="#336790"/>
 <text x="400" y="298" class="legend">PLpgSQL <tspan class="muted">5.9%</tspan></text>
 <circle cx="580" cy="294" r="5" fill="#f1e05a"/>
