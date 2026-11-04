@@ -48,7 +48,7 @@
 <text x="178" y="276" class="role" text-anchor="middle">Lockheed Martin Space</text>
 <line x1="58" y1="300" x2="298" y2="300" stroke="var(--border)"/>
 <text x="42" y="328" class="key">uptime</text>
-<text x="314" y="328" class="val" text-anchor="end">25y 10m 13d</text>
+<text x="314" y="328" class="val" text-anchor="end">25y 10m 14d</text>
 <text x="42" y="353" class="key">focus</text>
 <text x="314" y="353" class="val" text-anchor="end">Robotics, Webscraping</text>
 <text x="42" y="378" class="key">stack</text>
@@ -85,12 +85,12 @@
 <text x="384" y="228" class="label">Languages by bytes</text>
 <clipPath id="barclip"><rect x="384" y="242" width="572" height="12" rx="6"/></clipPath>
 <g clip-path="url(#barclip)">
-<rect x="384.00" y="242" width="273.28" height="12" fill="#3572A5"/>
-<rect x="657.28" y="242" width="127.24" height="12" fill="#3178c6"/>
-<rect x="784.51" y="242" width="91.64" height="12" fill="#4F5D95"/>
-<rect x="876.15" y="242" width="32.70" height="12" fill="#336790"/>
-<rect x="908.85" y="242" width="17.76" height="12" fill="#f1e05a"/>
-<rect x="926.61" y="242" width="29.39" height="12" fill="#6e7681"/>
+<rect x="384.00" y="242" width="273.46" height="12" fill="#3572A5"/>
+<rect x="657.46" y="242" width="127.16" height="12" fill="#3178c6"/>
+<rect x="784.62" y="242" width="91.58" height="12" fill="#4F5D95"/>
+<rect x="876.20" y="242" width="32.68" height="12" fill="#336790"/>
+<rect x="908.88" y="242" width="17.75" height="12" fill="#f1e05a"/>
+<rect x="926.63" y="242" width="29.37" height="12" fill="#6e7681"/>
 </g>
 <circle cx="389" cy="272" r="5" fill="#3572A5"/>
 <text x="400" y="276" class="legend">Python <tspan class="muted">47.8%</tspan></text>
