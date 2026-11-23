@@ -48,7 +48,7 @@
 <text x="178" y="276" class="role" text-anchor="middle">Lockheed Martin Space</text>
 <line x1="58" y1="300" x2="298" y2="300" stroke="var(--border)"/>
 <text x="42" y="328" class="key">uptime</text>
-<text x="314" y="328" class="val" text-anchor="end">25y 11m 1d</text>
+<text x="314" y="328" class="val" text-anchor="end">25y 11m 2d</text>
 <text x="42" y="353" class="key">focus</text>
 <text x="314" y="353" class="val" text-anchor="end">Robotics, Webscraping</text>
 <text x="42" y="378" class="key">stack</text>
@@ -85,21 +85,21 @@
 <text x="384" y="228" class="label">Languages by bytes</text>
 <clipPath id="barclip"><rect x="384" y="242" width="572" height="12" rx="6"/></clipPath>
 <g clip-path="url(#barclip)">
-<rect x="384.00" y="242" width="276.19" height="12" fill="#3572A5"/>
-<rect x="660.19" y="242" width="126.77" height="12" fill="#3178c6"/>
-<rect x="786.96" y="242" width="87.70" height="12" fill="#4F5D95"/>
-<rect x="874.66" y="242" width="31.81" height="12" fill="#336790"/>
-<rect x="906.47" y="242" width="17.04" height="12" fill="#f1e05a"/>
-<rect x="923.51" y="242" width="32.49" height="12" fill="#6e7681"/>
+<rect x="384.00" y="242" width="277.67" height="12" fill="#3572A5"/>
+<rect x="661.67" y="242" width="126.09" height="12" fill="#3178c6"/>
+<rect x="787.76" y="242" width="87.24" height="12" fill="#4F5D95"/>
+<rect x="875.00" y="242" width="31.64" height="12" fill="#336790"/>
+<rect x="906.64" y="242" width="16.95" height="12" fill="#f1e05a"/>
+<rect x="923.60" y="242" width="32.40" height="12" fill="#6e7681"/>
 </g>
 <circle cx="389" cy="272" r="5" fill="#3572A5"/>
-<text x="400" y="276" class="legend">Python <tspan class="muted">48.3%</tspan></text>
+<text x="400" y="276" class="legend">Python <tspan class="muted">48.5%</tspan></text>
 <circle cx="580" cy="272" r="5" fill="#3178c6"/>
-<text x="591" y="276" class="legend">TypeScript <tspan class="muted">22.2%</tspan></text>
+<text x="591" y="276" class="legend">TypeScript <tspan class="muted">22.0%</tspan></text>
 <circle cx="770" cy="272" r="5" fill="#4F5D95"/>
 <text x="781" y="276" class="legend">PHP <tspan class="muted">15.3%</tspan></text>
 <circle cx="389" cy="294" r="5" fill="#336790"/>
-<text x="400" y="298" class="legend">PLpgSQL <tspan class="muted">5.6%</tspan></text>
+<text x="400" y="298" class="legend">PLpgSQL <tspan class="muted">5.5%</tspan></text>
 <circle cx="580" cy="294" r="5" fill="#f1e05a"/>
 <text x="591" y="298" class="legend">JavaScript <tspan class="muted">3.0%</tspan></text>
 <circle cx="770" cy="294" r="5" fill="#6e7681"/>
